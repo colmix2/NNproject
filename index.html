@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Casualties Unknown — Полный Симулятор</title>
+    <style>
+        body {
+            background-color: #030304;
+            color: #4ade80;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-layout {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            position: relative;
+        }
+
+        #canvas-container {
+            width: 600px;
+            height: 500px;
+            position: relative;
+        }
+
+        canvas {
+            border: 1px dashed #1a1c22;
+            background-color: #060607;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+            cursor: crosshair;
+            display: block;
+        }
+
+        #medical-panel {
+            width: 260px;
+            height: 500px;
+            background-color: #181c1a;
+            border: 4px solid #3a3f44;
+            box-shadow: 0 0 25px rgba(74, 222, 128, 0.15);
+            display: flex;
+            flex-direction: column;
+            padding: 2px;
+            box-sizing: border-box;
+        }
+        .section-header {
+            background-color: #24292e;
+            border: 2px solid #3a3f44;
+            text-align: center;
+            padding: 4px 0;
+            font-size: 13px;
+            letter-spacing: 2px;
+            color: #4ade80;
+            text-shadow: 0 0 4px rgba(74, 222, 128, 0.6);
+        }
+
+        .stats-box {
+            border: 2px dashed #2d3339;
+            margin-top: 4px;
+            padding: 6px;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        .stat-line {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            width: 80px;
+            color: #83dec1;
+        }
+
+        .progress-bar-container {
+            flex-grow: 1;
+            height: 8px;
+            border: 1px solid #4ade80;
+            background-color: #0c0f0e;
+            position: relative;
+            margin-left: 5px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: #4ade80;
+            width: 100%;
+            box-shadow: 0 0 6px #4ade80;
+            transition: width 0.1s linear;
+        }
+
+        .split-row {
+            display: flex;
+            border-top: 2px dashed #2d3339;
+            margin-top: 5px;
+            padding-top: 5px;
+        }
+
+        .danger-text {
+            color: #ef4444;
+            text-shadow: 0 0 4px #ef4444;
+        }
+
+        .pain-flash {
+            animation: flash 0.15s ease-out;
+        }
+        @keyframes flash {
+            0% { background-color: rgba(255, 0, 0, 0.25); }
+            100% { background-color: #030304; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-layout">
+        <div id="canvas-container">
+            <canvas id="gameCanvas" width="600" height="500"></canvas>
+            <div id="status" style="margin-top: 10px; font-size: 12px; color: #888; text-align: center; max-width: 600px;">
+                РЕНТГЕН: Оцените карту травм. Кликните по иконке ранения для старта операции.
+            </div>
+        </div>
+
+        <div id="medical-panel">
+            <div class="section-header">ЭКСПЕРИМЕНТ</div>
+            
+            <div class="stats-box">
+                <div class="stat-line">
+                    <span class="stat-label">❤️ ЖИЗНЬ</span>
+                    <div class="progress-bar-container"><div id="hp-bar" class="progress-fill" style="width: 100%;"></div></div>
+                    <span id="hp-val" style="margin-left: 5px;">100</span>
+                </div>
+                
+                <div class="stat-line">
+                    <span class="stat-label">➕ СОЗНАН.</span>
+                    <span id="consc-val">100%</span>
+                </div>
+                
+                <div class="stat-line">
+                    <span class="stat-label">⚡ БОЛЬ</span>
+                    <span id="pain-val">0%</span>
+                </div>
+                
+                <div class="stat-line" style="margin-top: 6px; align-items: flex-start;">
+                    <span class="stat-label">🫀 КРОВЬ</span>
+                    <div style="font-size: 11px; color: #a3e635;">
+                        <div id="blood-vol">4.500 л</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-header" style="margin-top: 4px;" id="stage-header">МОНИТОР ИВЕНТОВ</div>
+            
+            <div class="stats-box" style="margin-top: 4px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div id="stage-desc" style="font-size: 11px; color: #83dec1; line-height: 1.4;">
+                        Исследуйте карту случайных ранений. Картинки привязаны прямо к суставам.
+                    </div>
+                </div>
+                <div id="instruction-footer" style="font-size: 11px; color: #636875; text-align: center; border-top: 1px dashed #2d3339; padding-top: 5px;">
+                    Ожидание хирурго-ортопедического вмешательства.
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const statusDiv = document.getElementById('status');
+const hpBar = document.getElementById('hp-bar');
+const hpVal = document.getElementById('hp-val');
+const conscVal = document.getElementById('consc-val');
+const painVal = document.getElementById('pain-val');
+const bloodVol = document.getElementById('blood-vol');
+const stageHeader = document.getElementById('stage-header');
+const stageDesc = document.getElementById('stage-desc');
+const instFooter = document.getElementById('instruction-footer');
+
+let patientHp = 100; let patientPain = 15; let patientConsc = 100; let totalBlood = 4.500;
+let currentStage = 1; let knockoutTimer = 0; let isKnockedOut = false;
+let isAligned = false;
+
+// ИСПРАВЛЕНО: Все файлы картинок теперь имеют расширение .png
+const shardsIcon = new Image();
+shardsIcon.src = "https://githubusercontent.com";
+
+const infectIcon = new Image();
+infectIcon.src = "https://githubusercontent.com";
+
+const fractureIcon = new Image();
+fractureIcon.src = "https://githubusercontent.com";
+
+const bleedLightIcon = new Image();
+bleedLightIcon.src = "https://githubusercontent.com";
+
+const bleedMediumIcon = new Image();
+bleedMediumIcon.src = "https://githubusercontent.com";
+
+const bleedHeavyIcon = new Image();
+bleedHeavyIcon.src = "https://githubusercontent.com";
+
+const cX = 300; const cY = 240;
+let limbs = [
+    { id: 0,  name: "ГОЛОВА",        x: cX - 20, y: cY - 120, w: 40, h: 40, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 1,  name: "ВЕРХНИЙ ТОРС",  x: cX - 35, y: cY - 75,  w: 70, h: 45, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 2,  name: "НИЖНИЙ ТОРС",   x: cX - 35, y: cY - 25,  w: 70, h: 30, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 3,  name: "ЛЕВОЕ ПЛЕЧО",   x: cX - 72, y: cY - 75,  w: 32, h: 22, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 4,  name: "Л. ПРЕДПЛЕЧЬЕ", x: cX - 72, y: cY - 48,  w: 32, h: 22, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 5,  name: "ЛЕВАЯ КИСТЬ",   x: cX - 72, y: cY - 21,  w: 32, h: 14, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 6,  name: "ПРАВОЕ ПЛЕЧО",  x: cX + 40, y: cY - 75,  w: 32, h: 22, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 7,  name: "П. ПРЕДПЛЕЧЬЕ", x: cX + 40, y: cY - 48,  w: 32, h: 22, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 8,  name: "ПРАВАЯ КИСТЬ",  x: cX + 40, y: cY - 21,  w: 32, h: 14, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 9,  name: "ЛЕВОЕ БЕДРО",   x: cX - 34, y: cY + 10,  w: 32, h: 32, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 10, name: "ЛЕВАЯ ГОЛЕНЬ",  x: cX - 34, y: cY + 47,  w: 32, h: 32, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 11, name: "ЛЕВАЯ СТУПНЯ",  x: cX - 34, y: cY + 84,  w: 32, h: 14, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 12, name: "ПРАВОЕ БЕДРО",  x: cX + 2,  y: cY + 10,  w: 32, h: 32, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 13, name: "ПРАВАЯ ГОЛЕНЬ", x: cX + 2,  y: cY + 47,  w: 32, h: 32, isGrabbed: false, eventType: 0, activeEventLimbId: null },
+    { id: 14, name: "ПРАВАЯ СТУПНЯ", x: cX + 2,  y: cY + 84,  w: 32, h: 14, isGrabbed: false, eventType: 0, activeEventLimbId: null }
+];
+
+function generateRandomEvents() {
+    limbs.forEach(l => {
+        l.eventType = 0;
+        if (l.id !== 0 && l.id !== 1 && l.id !== 2) {
+            if (Math.random() < 0.40) {
+                let types =;
+                l.eventType = types[Math.floor(Math.random() * types.length)];
+            }
+        }
+    });
+}
+generateRandomEvents();
+limbs.forEach(l => { l.targetX = l.x; l.targetY = l.y; });
+let grabbedLimb = null; const followLerp = 0.2;
+let selectedLimb = null; // Запоминаем текущую оперируемую конечность
+const groundY = 180; const shardMaxSafeSpeed = 0.20;
+let skinTensionY = groundY; let tensionTargetX = 0;
+let shards = [
+    { id: 1, x: 120, y: groundY - 25, w: 50, h: 150, initialY: groundY - 25, isExtracted: false, points: [{x:25,y:0}, {x:50,y:40}, {x:40,y:90}, {x:48,y:150}, {x:2,y:140}, {x:12,y:80}, {x:0,y:40}] },
+    { id: 2, x: 250, y: groundY - 20, w: 60, h: 160, initialY: groundY - 20, isExtracted: false, points: [{x:30,y:0}, {x:60,y:30}, {x:45,y:70}, {x:55,y:160}, {x:5,y:150}, {x:15,y:90}, {x:0,y:40}] },
+    { id: 3, x: 380, y: groundY - 30, w: 55, h: 140, initialY: groundY - 30, isExtracted: false, points: [{x:20,y:0}, {x:55,y:35}, {x:40,y:80}, {x:50,y:140}, {x:0,y:135}, {x:10,y:70}, {x:2,y:30}] },
+    { id: 4, x: 490, y: groundY - 22, w: 50, h: 155, initialY: groundY - 22, isExtracted: false, points: [{x:25,y:0}, {x:50,y:25}, {x:38,y:75}, {x:45,y:155}, {x:5,y:145}, {x:12,y:85}, {x:0,y:35}] }
+];
+let grabbedShard = null; let startGrabX = 0;
+
+const playerArm = { x: 300, y: 300, outerRadius: 90, innerRadius: 18 };
+let bandageRoll = { x: 300, y: 165, radius: 42, angle: 0, wrapProgress: 0 };
+const orbitRadius = playerArm.outerRadius + 42 - 1; let lastAngle = -Math.PI / 2;
+let targetBandageCircles = 4.5; let activeBleedType = 0; 
+
+const bladeLimb = { x: 300, y: 270, outerRadius: 75, innerRadius: 18 };
+let saw = { x: 180, y: bladeLimb.y - bladeLimb.outerRadius - 10, targetY: bladeLimb.y - bladeLimb.outerRadius - 10, bladeWidth: 190, bladeHeight: 25, handleWidth: 60, handleHeight: 16, cutProgress: 0 };
+const finalCutY = bladeLimb.y + bladeLimb.outerRadius;
+let lastSawX = saw.x; let sawDirection = 0; let strokeDistance = 0;
+
+let boneHead = { x: 300, y: 140, targetY: 140, vx: 0.1, vy: -0.05, radius: 50, angle: 0 };
+const finalAlignedY = 265;
+
+let isDragging = false; let mouse = { x: 0, y: 0 }; let lastMouseY = 0; let lastMouseTime = performance.now();
+let currentLiftingSpeed = 0; let dragOffset = { x: 0, y: 0 };
+
+function drawInjuryIcon(ctx, x, y, type) {
+    let imgToDraw = null;
+    if (type === 2) imgToDraw = shardsIcon;
+    else if (type === 4) imgToDraw = infectIcon;
+    else if (type === 5) imgToDraw = fractureIcon;
+    else if (type === 6) imgToDraw = bleedLightIcon;   
+    else if (type === 7) imgToDraw = bleedMediumIcon;  
+    else if (type === 8) imgToDraw = bleedHeavyIcon;   
+
+    if (imgToDraw && imgToDraw.complete) {
+        ctx.drawImage(imgToDraw, x - 8, y - 8, 16, 16);
+    } else {
+        ctx.fillStyle = type === 2 ? '#e28743' : (type === 4 ? '#ffff33' : (type === 5 ? '#4ade80' : '#ef4444'));
+        ctx.fillRect(x - 4, y - 4, 8, 4);
+    }
+}
+
+function drawRollSpiral(cx, cy, maxRadius, currentAngle, progress) {
+    ctx.save(); ctx.strokeStyle = '#5c6170'; ctx.lineWidth = 2.0; ctx.beginPath();
+    const coils = Math.max(0.5, 4.5 - (progress * 4)); const iterations = 100;
+    for (let i = 0; i < iterations; i++) {
+        let angle = (i / iterations) * (coils * 2 * Math.PI) + currentAngle;
+        let r = (i / iterations) * maxRadius; ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+    }
+    ctx.stroke(); ctx.restore();
+}
+
+function drawSawTeeth(bx, by, width, height) {
+    ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(bx, by + height);
+    const toothWidth = 5; const toothHeight = 4; const steps = Math.floor((width - 25) / toothWidth);
+    for (let i = 0; i <= steps; i++) {
+        let tx = bx + (i * toothWidth); ctx.lineTo(tx + toothWidth / 2, by + height + toothHeight); ctx.lineTo(tx + toothWidth, by + height);
+    }
+    ctx.lineTo(bx + width, by + height); ctx.stroke(); ctx.restore();
+}
+
+function triggerPainBreak(reason) {
+    document.body.classList.add('pain-flash'); setTimeout(() => document.body.classList.remove('pain-flash'), 100);
+    patientHp -= 15; patientPain = Math.min(100, patientPain + 25);
+    statusDiv.innerText = reason + " Состояние ухудшилось."; statusDiv.style.color = "#ef4444";
+    if (grabbedShard) grabbedShard.initialY = grabbedShard.y;
+    grabbedShard = null; isDragging = false; currentLiftingSpeed = 0; skinTensionY = groundY;
+}
+function updateGame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (patientPain >= 100 && !isKnockedOut) {
+        isKnockedOut = true; knockoutTimer = performance.now();
+        grabbedShard = null; grabbedLimb = null; isDragging = false;
+    }
+
+    if (isKnockedOut) {
+        let elapsed = (performance.now() - knockoutTimer) / 1000;
+        let left = Math.ceil(15 - elapsed);
+        if (left <= 0) {
+            isKnockedOut = false; patientPain = 35; currentStage = 1;
+            generateRandomEvents(); 
+            stageHeader.innerText = "ЭТАП 1: РЕНТГЕН"; statusDiv.style.color = "#888";
+        } else {
+            hpBar.style.width = `${patientHp}%`; hpVal.innerText = Math.round(patientHp);
+            painVal.innerText = "100%"; conscVal.innerText = "0%";
+            ctx.save(); ctx.fillStyle = "#ef4444"; ctx.font = "16px monospace"; ctx.textAlign = "center";
+            ctx.fillText("ПЕРСОНАЖ ПОТЕРЯЛ СОЗНАНИЕ ОТ ШОКА", 300, 220);
+            ctx.fillStyle = "#ffffff"; ctx.font = "13px monospace";
+            ctx.fillText(`Регенерация сознания: ${left} сек`, 300, 260); ctx.restore();
+            requestAnimationFrame(updateGame); return;
+        }
+    }
+
+    let currentLeakRate = 0;
+    limbs.forEach(l => {
+        if (l.eventType === 6) currentLeakRate += 0.005; 
+        if (l.eventType === 7) currentLeakRate += 0.015; 
+        if (l.eventType === 8) currentLeakRate += 0.040; 
+    });
+
+    if (currentLeakRate > 0) {
+        totalBlood -= currentLeakRate * 0.016; patientHp -= currentLeakRate * 12;     
+        if(Math.random() < 0.02) patientPain = Math.min(100, patientPain + currentLeakRate * 40);
+    }
+
+    if (patientHp <= 0 || totalBlood <= 2.2) { 
+        patientHp = 0; hpBar.style.width = "0%"; hpVal.innerText = "0"; conscVal.innerText = "0%";
+        statusDiv.innerText = "КРИТИЧЕСКАЯ ПОТЕРЯ КРОВИ: Эксперимент мёртв."; statusDiv.style.color = "#ef4444"; return;
+    }
+
+    if (Math.random() < 0.05 && currentStage > 1) {
+        patientPain = Math.max(10, Math.min(100, patientPain + (Math.random() - 0.5) * 1.5));
+        patientConsc = Math.max(0, Math.min(100, 100 - (patientPain * 0.8)));
+    }
+    hpBar.style.width = `${patientHp}%`; hpVal.innerText = Math.round(patientHp);
+    painVal.innerText = `${patientPain.toFixed(1)}%`; conscVal.innerText = `${Math.round(patientConsc)}%`;
+    bloodVol.innerText = `${totalBlood.toFixed(3)} л`;
+
+    if (currentStage === 1) {
+        if (grabbedLimb) {
+            grabbedLimb.x += (mouse.x - dragOffset.x - grabbedLimb.x) * followLerp;
+            grabbedLimb.y += (mouse.y - dragOffset.y - grabbedLimb.y) * followLerp;
+        }
+        limbs.forEach(l => {
+            if (!l.isGrabbed) { l.x += (l.targetX - l.x) * 0.15; l.y += (l.targetY - l.y) * 0.15; }
+            ctx.save(); ctx.strokeStyle = l.eventType !== 0 ? '#ef4444' : (l.isGrabbed ? '#4ade80' : '#ffffff');
+            ctx.lineWidth = 1.6; ctx.fillStyle = '#060607'; ctx.beginPath();
+            if (l.id === 0) ctx.roundRect(l.x, l.y, l.w, l.h, 6); else ctx.rect(l.x, l.y, l.w, l.h);
+            ctx.fill(); ctx.stroke(); ctx.restore();
+
+            if (l.eventType !== 0) {
+                drawInjuryIcon(ctx, l.x + (l.w / 2), l.y + (l.h / 2), l.eventType);
+            }
+        });
+    }
+    else if (currentStage === 2) {
+        if (grabbedShard) {
+            const horizontalDeviation = Math.abs(mouse.x - startGrabX);
+            if (horizontalDeviation > 4) triggerPainBreak("ОСЕВОЕ СМЕЩЕНИЕ!");
+            else if (currentLiftingSpeed > shardMaxSafeSpeed) triggerPainBreak("ПРЕВЫШЕНИЕ СКОРОСТИ!");
+            else {
+                if (mouse.y < grabbedShard.initialY) {
+                    grabbedShard.y = mouse.y; tensionTargetX = grabbedShard.x;
+                    const currentShardBottom = grabbedShard.y + grabbedShard.h;
+                    skinTensionY = currentShardBottom < groundY ? currentShardBottom : groundY;
+                } else { skinTensionY = groundY; }
+            }
+            if (grabbedShard && grabbedShard.y + grabbedShard.h < groundY - 15) {
+                grabbedShard.isExtracted = true; grabbedShard = null; isDragging = false; skinTensionY = groundY;
+                
+                // Проверяем, вытащили ли ВСЕ осколки из раны
+                if (shards.filter(s => !s.isExtracted).length === 0) {
+                    shards.forEach(s => s.isExtracted = false); // сброс объектов для будущего
+                    
+                    // ДОБАВЛЕНО: Превращаем рану от осколков в СРЕДНЕЕ КРОВОТЕЧЕНИЕ (ивент 7)
+                    if (selectedLimb) {
+                        selectedLimb.eventType = 7;
+                    }
+                    
+                    // Автоматически перенаправляем хирурга на этап намотки бинта
+                    currentStage = 3; activeBleedType = 7; targetBandageCircles = 5;
+                    stageHeader.innerText = "ИВЕНТ: СРЕДНЕЕ КРОВОТЕЧЕНИЕ"; 
+                    stageDesc.innerText = "Осколки удалены, рана раскрылась! Срочно наложите 5 слоев марли!";
+                    statusDiv.innerText = "ТКАНЬ ПОРВАНА: Началось среднее кровотечение! Наложите бинт.";
+                    statusDiv.style.color = "#ef4444";
+                }
+            }
+        } else if (skinTensionY < groundY) skinTensionY += (groundY - skinTensionY) * 0.1;
+
+        ctx.save(); ctx.fillStyle = '#060607'; ctx.beginPath();
+        if (isDragging && grabbedShard && skinTensionY < groundY) { ctx.moveTo(0, groundY); ctx.lineTo(tensionTargetX - 70, groundY); ctx.quadraticCurveTo(tensionTargetX, skinTensionY, tensionTargetX + (grabbedShard.w / 2), skinTensionY); ctx.lineTo(tensionTargetX + grabbedShard.w + 70, groundY); ctx.lineTo(canvas.width, groundY); } else { ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY); }
+        ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(0, canvas.height); ctx.closePath(); ctx.fill(); ctx.restore();
+
+        ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.beginPath();
+        if (isDragging && grabbedShard && skinTensionY < groundY) { ctx.moveTo(0, groundY); ctx.lineTo(tensionTargetX - 70, groundY); ctx.quadraticCurveTo(tensionTargetX, skinTensionY, tensionTargetX + (grabbedShard.w / 2), skinTensionY); ctx.lineTo(tensionTargetX + grabbedShard.w + 70, groundY); ctx.lineTo(canvas.width, groundY); } else { ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY); }
+        ctx.stroke(); ctx.restore();
+
+        shards.forEach(s => {
+            if (s.isExtracted) return;
+            ctx.save(); ctx.strokeStyle = (s === grabbedShard) ? '#e28743' : '#bc7a5c'; ctx.lineWidth = 2; ctx.fillStyle = '#060607';
+            ctx.beginPath(); ctx.moveTo(s.x + s.points.x, s.y + s.points.y);
+            for(let i=1; i<s.points.length; i++) ctx.lineTo(s.x + s.points[i].x, s.y + s.points[i].y);
+            ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+        });
+        ctx.save(); ctx.fillStyle = '#060607'; ctx.beginPath();
+        if (isDragging && grabbedShard && skinTensionY < groundY) { ctx.moveTo(0, groundY); ctx.lineTo(tensionTargetX - 70, groundY); ctx.quadraticCurveTo(tensionTargetX, skinTensionY, tensionTargetX + (grabbedShard.w / 2), skinTensionY); ctx.lineTo(tensionTargetX + grabbedShard.w + 70, groundY); } else ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY);
+        ctx.lineTo(canvas.width, canvas.height); ctx.lineTo(0, canvas.height); ctx.closePath(); ctx.globalCompositeOperation = 'destination-over'; ctx.fill(); ctx.restore();
+    }
+    else if (currentStage === 3) {
+        const startRad = 42; const endRad = 16; bandageRoll.radius = startRad - (startRad - endRad) * bandageRoll.wrapProgress;
+        const currentOrbit = playerArm.outerRadius + bandageRoll.radius - 1;
+        if (isDragging) {
+            const currentPivotAngle = Math.atan2(mouse.y - playerArm.y, mouse.x - playerArm.x);
+            const targetX = playerArm.x + currentOrbit * Math.cos(currentPivotAngle); const targetY = playerArm.y + currentOrbit * Math.sin(currentPivotAngle);
+            bandageRoll.x += (targetX - bandageRoll.x) * 0.22; bandageRoll.y += (targetY - bandageRoll.y) * 0.22;
+            let angleDelta = currentPivotAngle - lastAngle; if (angleDelta > Math.PI) angleDelta -= Math.PI * 2; if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
+            if (Math.abs(angleDelta) < 0.5) { 
+                bandageRoll.angle += angleDelta; 
+                if (angleDelta > 0.002) bandageRoll.wrapProgress += angleDelta / (Math.PI * 2 * targetBandageCircles); 
+            }
+            lastAngle = currentPivotAngle;
+        } else {
+            if (bandageRoll.wrapProgress > 0) { bandageRoll.wrapProgress -= 0.001; bandageRoll.angle -= 0.02; }
+            const currentAngle = -Math.PI / 2 + (bandageRoll.wrapProgress * targetBandageCircles * Math.PI * 2);
+            bandageRoll.x += (playerArm.x + currentOrbit * Math.cos(currentAngle) - bandageRoll.x) * 0.1; bandageRoll.y += (playerArm.y + currentOrbit * Math.sin(currentAngle) - bandageRoll.y) * 0.1; lastAngle = currentAngle;
+        }
+        if (bandageRoll.wrapProgress >= 1) {
+            currentStage = 1; isDragging = false; bandageRoll.wrapProgress = 0;
+            // Успешно закрываем кровотечение на конечности
+            if (selectedLimb) selectedLimb.eventType = 0;
+            selectedLimb = null; // Сброс фокуса
+            stageHeader.innerText = "ЭТАП 1: РЕНТГЕН"; statusDiv.innerText = "Повязка наложена! Кровотечение остановлено."; statusDiv.style.color = "#4ade80";
+        }
+        ctx.save(); ctx.strokeStyle = '#22252c'; ctx.lineWidth = 1.8; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(playerArm.x, playerArm.y, playerArm.outerRadius, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(playerArm.x, playerArm.y, playerArm.innerRadius, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        if (bandageRoll.wrapProgress > 0) {
+            ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 5; const totalViktov = bandageRoll.wrapProgress * targetBandageCircles; const fullCircles = Math.floor(totalViktov); const partial = totalViktov % 1;
+            for (let c = 0; c < fullCircles; c++) { ctx.beginPath(); ctx.arc(playerArm.x, playerArm.y, playerArm.outerRadius + (c * 3.5), 0, Math.PI * 2); ctx.stroke(); }
+            if (partial > 0) { ctx.beginPath(); ctx.arc(playerArm.x, playerArm.y, playerArm.outerRadius + (fullCircles * 3.5), -Math.PI / 2, -Math.PI / 2 + (partial * Math.PI * 2)); ctx.stroke(); }
+            ctx.restore();
+        }
+        ctx.save(); ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(bandageRoll.x, bandageRoll.y, bandageRoll.radius, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        drawRollSpiral(bandageRoll.x, bandageRoll.y, bandageRoll.radius - 2, bandageRoll.angle, bandageRoll.wrapProgress);
+    }
+    else if (currentStage === 5) {
+        if (isDragging) {
+            const dragForceY = mouse.y - dragOffset.y - boneHead.y;
+            if (dragForceY > 0.5) {
+                boneHead.angle += dragForceY * 0.008; boneHead.y += dragForceY * 0.15;
+                boneHead.x = 300 + Math.sin(boneHead.angle * 2) * (boneHead.y - 140) * 0.15;
+            } else {
+                boneHead.y = Math.max(140, boneHead.y - 0.8); boneHead.angle = Math.max(0, boneHead.angle - 0.02);
+                boneHead.x = 300 + Math.sin(boneHead.angle * 2) * (boneHead.y - 140) * 0.15;
+            }
+        } else {
+            if (boneHead.y > 140) {
+                boneHead.y -= 1.2; boneHead.angle = Math.max(0, boneHead.angle - 0.03);
+                boneHead.x = 300 + Math.sin(boneHead.angle * 2) * (boneHead.y - 140) * 0.15;
+            } else { boneHead.x = 300; boneHead.y = 140; }
+        }
+        if (boneHead.y >= finalAlignedY - 3) {
+            currentStage = 1; isDragging = false; boneHead.x = 300; boneHead.y = 140;
+            if (selectedLimb) selectedLimb.eventType = 0; selectedLimb = null;
+            stageHeader.innerText = "ЭТАП 1: РЕНТГЕН"; statusDiv.innerText = "Кость встала в паз!"; statusDiv.style.color = "#4ade80";
+        }
+        ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(300, 350, 65, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(300, 350, 15, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.restore();
+        ctx.save(); ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(boneHead.x, boneHead.y, boneHead.radius, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        drawRollSpiral(boneHead.x, boneHead.y, boneHead.radius - 2, boneHead.angle, (boneHead.y - 140)/(finalAlignedY - 140));
+    }
+    else if (currentStage === 4) {
+        if (isDragging) {
+            const targetX = mouse.x - dragOffset.x; saw.x += (targetX - saw.x) * 0.25;
+            let currentDeltaX = saw.x - lastSawX;
+            if (Math.abs(currentDeltaX) > 0.2) {
+                let currentDir = currentDeltaX > 0 ? 1 : -1;
+                if (currentDir !== sawDirection) {
+                    if (strokeDistance > 25) {
+                        const distanceToBoneCenter = Math.abs(saw.y + saw.bladeHeight - bladeLimb.y);
+                        const isCuttingBone = (distanceToBoneCenter <= bladeLimb.innerRadius) && (saw.y + saw.bladeHeight >= bladeLimb.y - bladeLimb.innerRadius);
+                        saw.targetY += isCuttingBone ? 0.20 : 0.80; saw.cutProgress += isCuttingBone ? 0.20 : 0.80;
+                        if(isCuttingBone) { totalBlood -= 0.005; patientPain = Math.min(100, patientPain + 1.2); }
+                    }
+                    strokeDistance = 0; sawDirection = currentDir;
+                }
+                strokeDistance += Math.abs(currentDeltaX);
+            }
+            lastSawX = saw.x; saw.y += (saw.targetY - saw.y) * 0.1;
+        }
+        if (saw.y >= finalCutY - 2) {
+            currentStage = 1; isDragging = false; saw.cutProgress = 0; saw.y = bladeLimb.y - bladeLimb.outerRadius - 10; saw.targetY = saw.y;
+            if (selectedLimb) selectedLimb.eventType = 0; selectedLimb = null;
+            stageHeader.innerText = "ЭТАП 1: РЕНТГЕН"; statusDiv.innerText = "Ампутация завершена!"; statusDiv.style.color = "#4ade80";
+        }
+        ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bladeLimb.x, bladeLimb.y, bladeLimb.outerRadius, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(bladeLimb.x, bladeLimb.y, bladeLimb.innerRadius, 0, Math.PI * 2); fill(); ctx.restore();
+        if (saw.cutProgress > 0) {
+            ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3.5; ctx.beginPath();
+            let halfChord = Math.sqrt(Math.max(0, bladeLimb.outerRadius*bladeLimb.outerRadius - Math.pow(bladeLimb.y - saw.y, 2)));
+            ctx.moveTo(bladeLimb.x - halfChord, saw.y); ctx.lineTo(bladeLimb.x + halfChord, saw.y); ctx.stroke(); ctx.restore();
+        }
+        ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#060607'; ctx.lineWidth = 2.2;
+        const bx = saw.x + saw.handleWidth; const by = saw.y; const hx = saw.x; const hy = by + (saw.bladeHeight/2) - (saw.handleHeight/2);
+        ctx.beginPath(); ctx.rect(hx, hy, saw.handleWidth, saw.handleHeight); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(hx + 15, hy + saw.handleHeight/2, 2, 0, Math.PI * 2); ctx.arc(hx + 30, hy + saw.handleHeight/2, 2, 0, Math.PI * 2); ctx.arc(hx + 45, hy + saw.handleHeight/2, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#060607'; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + saw.bladeWidth - 30, by); ctx.lineTo(bx + saw.bladeWidth, by + 12); ctx.lineTo(bx + saw.bladeWidth - 10, by + saw.bladeHeight); ctx.lineTo(bx, by + saw.bladeHeight); ctx.closePath(); ctx.fill(); ctx.stroke();
+        drawSawTeeth(bx, by, saw.bladeWidth, saw.bladeHeight); ctx.restore();
+    }
+    requestAnimationFrame(updateGame);
+}
+
+function updateMousePos(e) { const rect = canvas.getBoundingClientRect(); mouse.x = e.clientX - rect.left; mouse.y = e.clientY - rect.top; }
+
+canvas.addEventListener('mousedown', (e) => {
+    if (patientHp <= 0 || isKnockedOut) return;
+    updateMousePos(e); 
+    
+    if (currentStage === 1) {
+        for (let i = limbs.length - 1; i >= 0; i--) {
+            let l = limbs[i];
+            if (mouse.x >= l.x && mouse.x <= l.x + l.w && mouse.y >= l.y && mouse.y <= l.y + l.h) {
+                if (l.eventType !== 0) {
+                    selectedLimb = l; // Фиксируем активную кость
+                }
+                
+                if (l.eventType === 2) {
+                    currentStage = 2; stageHeader.innerText = "ИВЕНТ: ОСКОЛКИ"; stageDesc.innerText = "Извлекайте осколки МЕДЛЕННО по вертикали Y, не качая мышь!";
+                } else if (l.eventType === 4) {
+                    currentStage = 4; stageHeader.innerText = "ИВЕНТ: ЗАРАЖЕНИЕ"; stageDesc.innerText = "Гангрена тканей! Отпилите сегмент движениями влево-вправо.";
+                } else if (l.eventType === 5) {
+                    currentStage = 5; stageHeader.innerText = "ИВЕНТ: ПЕРЕЛОМ КОСТИ"; stageDesc.innerText = "Давите строго ВНИЗ вдоль оси, преодолевая сопротивление мышц!";
+                } else if (l.eventType === 6 || l.eventType === 7 || l.eventType === 8) {
+                    currentStage = 3; activeBleedType = l.eventType;
+                    if(l.eventType === 6) { targetBandageCircles = 3; stageHeader.innerText = "ИВЕНТ: СЛАБОЕ КРОВОТЕЧЕНИЕ"; stageDesc.innerText = "Потребуется наложить 3 слоя марли."; }
+                    if(l.eventType === 7) { targetBandageCircles = 5; stageHeader.innerText = "ИВЕНТ: СРЕДНЕЕ КРОВОТЕЧЕНИЕ"; stageDesc.innerText = "Потребуется наложить 5 слоев марли."; }
+                    if(l.eventType === 8) { targetBandageCircles = 8; stageHeader.innerText = "ИВЕНТ: СИЛЬНОЕ КРОВОТЕЧЕНИЕ"; stageDesc.innerText = "КРИТИЧЕСКАЯ ПОТЕРЯ КРОВИ! Быстро наложите 8 полных слоев марли!"; }
+                } else { grabbedLimb = l; grabbedLimb.isGrabbed = true; dragOffset.x = mouse.x - grabbedLimb.x; dragOffset.y = mouse.y - grabbedLimb.y; }
+                break;
+            }
+        }
+    } 
+    else if (currentStage === 2) {
+        for (let i = 0; i < shards.length; i++) {
+            let s = shards[i]; if (!s.isExtracted && mouse.x >= s.x && mouse.x <= s.x + s.w && mouse.y >= s.y && mouse.y <= groundY + 15) {
+                grabbedShard = s; isDragging = true; startGrabX = mouse.x; lastMouseY = mouse.y; lastMouseTime = performance.now(); currentLiftingSpeed = 0; break;
+            }
+        }
+    } 
+    else if (currentStage === 3) {
+        if (Math.hypot(mouse.x - bandageRoll.x, mouse.y - bandageRoll.y) <= bandageRoll.radius + 5) {
+            isDragging = true; dragOffset.x = mouse.x - bandageRoll.x; dragOffset.y = mouse.y - bandageRoll.y; lastAngle = Math.atan2(bandageRoll.y - playerArm.y, bandageRoll.x - playerArm.x);
+        }
+    } 
+    else if (currentStage === 4) {
+        const hx = saw.x; const hy = saw.y + (saw.bladeHeight/2) - (saw.handleHeight/2);
+        if (mouse.x >= hx && mouse.x <= hx + saw.handleWidth && mouse.y >= hy && mouse.y <= hy + saw.handleHeight) {
+            isDragging = true; dragOffset.x = mouse.x - saw.x; dragOffset.y = mouse.y - saw.y; lastSawX = saw.x; strokeDistance = 0;
+        }
+    }
+    else if (currentStage === 5) {
+        if (Math.hypot(mouse.x - boneHead.x, mouse.y - boneHead.y) <= boneHead.radius) { isDragging = true; dragOffset.x = mouse.x - boneHead.x; dragOffset.y = mouse.y - boneHead.y; }
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => { const oldY = mouse.y; updateMousePos(e); if (currentStage === 2 && grabbedShard) { const now = performance.now(); const dt = now - lastMouseTime; if (dt > 0) { const distY = oldY - mouse.y; currentLiftingSpeed = distY > 0 ? distY / dt : 0; lastMouseY = mouse.y; lastMouseTime = now; } } });
+canvas.addEventListener('mouseup', () => { if (currentStage === 1 && grabbedLimb) { grabbedLimb.isGrabbed = false; grabbedLimb = null; } else if (currentStage === 2 && grabbedShard) { grabbedShard.initialY = grabbedShard.y; grabbedShard = null; isDragging = false; currentLiftingSpeed = 0; skinTensionY = groundY; } else if (currentStage === 3 || currentStage === 4 || currentStage === 5) { isDragging = false; } });
+updateGame();
+</script>
+</body>
+</html>
